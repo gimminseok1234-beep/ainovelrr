@@ -82,6 +82,7 @@ const parseWorldviewContext = (worldviewRaw: string): string => {
 // Core Gemini API Caller
 export const callAI = async (
     messages: { role: string, content: string }[],
+    model: string = 'gemini-2.5-pro',
     options: {
         onChunk?: (text: string) => void,
         temperature?: number,
@@ -141,7 +142,7 @@ export const callAI = async (
     try {
         if (options.onChunk) {
             const response = await ai.models.generateContentStream({
-                model: 'gemini-3.1-pro-preview',
+                model: model,
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 config
             });
@@ -157,7 +158,7 @@ export const callAI = async (
             return fullText;
         } else {
             const response = await ai.models.generateContent({
-                model: 'gemini-3.1-pro-preview',
+                model: model,
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 config
             });
@@ -209,6 +210,7 @@ export const refineSynopsisWithContext = async (
   try {
     const result = await callAI(
         [{ role: 'user', content: prompt }],
+        'gemini-2.5-pro',
         { responseMimeType: 'application/json', creativityLevel }
     );
     return JSON.parse(cleanJson(result)) as RefinedSynopsisCard[];
@@ -249,6 +251,7 @@ export const refineSynopsisStream = async (
   try {
     return await callAI(
         [{ role: 'user', content: prompt }],
+        'gemini-2.5-pro',
         { onChunk, creativityLevel }
     );
   } catch (e) { 
@@ -260,7 +263,7 @@ export const refineSynopsisStream = async (
 export const analyzeSynopsisReference = async (text: string): Promise<string> => {
     const prompt = getReferenceAnalysisPrompt(text);
     try {
-        return await callAI([{ role: 'user', content: prompt }]);
+        return await callAI([{ role: 'user', content: prompt }], 'gemini-2.5-pro');
     } catch (e) {
         handleApiError(e);
         return "";
@@ -287,6 +290,7 @@ export const generateNovelStep = async (
                 { role: 'system', content: GENERAL_SYSTEM_PROMPT },
                 { role: 'user', content: promptContext }
             ],
+            'gemini-2.5-pro',
             { onChunk, creativityLevel: settings.creativityLevel || 7 }
         );
     } catch (e: any) {
@@ -298,7 +302,7 @@ export const generateNovelStep = async (
 export const analyzeRawStoryIdea = async (idea: string, chapterCount: number, pov: string): Promise<string> => {
     const prompt = getRawStoryIdeaAnalysisPrompt(idea, chapterCount, pov);
     try {
-        return await callAI([{ role: 'user', content: prompt }], { temperature: 0.8 });
+        return await callAI([{ role: 'user', content: prompt }], 'gemini-2.5-pro', { temperature: 0.8 });
     } catch (e) {
         handleApiError(e);
         throw e;
@@ -308,7 +312,7 @@ export const analyzeRawStoryIdea = async (idea: string, chapterCount: number, po
 export const continueStoryStream = async (currentContent: string, onChunk: (text: string) => void, temperature: number = 0.7): Promise<string> => {
     const prompt = getContinueStoryPrompt(currentContent);
     try {
-        return await callAI([{ role: 'user', content: prompt }], { onChunk, temperature });
+        return await callAI([{ role: 'user', content: prompt }], 'gemini-2.5-pro', { onChunk, temperature });
     } catch (e) {
         handleApiError(e);
         throw e;
@@ -318,7 +322,7 @@ export const continueStoryStream = async (currentContent: string, onChunk: (text
 export const refineText = async (text: string, instruction: string, creativityLevel: number = 7): Promise<string> => {
     const prompt = getRefineTextPrompt(text, instruction);
     try {
-        return await callAI([{ role: 'user', content: prompt }], { creativityLevel });
+        return await callAI([{ role: 'user', content: prompt }], 'gemini-2.5-pro', { creativityLevel });
     } catch (e) {
         handleApiError(e);
         return text;
@@ -328,7 +332,7 @@ export const refineText = async (text: string, instruction: string, creativityLe
 export const analyzeManuscript = async (text: string): Promise<{title: string, worldview: {title: string, content: string}[], characters: CharacterProfile[]} | null> => {
     const prompt = getManuscriptAnalysisPrompt(text);
     try {
-        const responseText = await callAI([{ role: 'user', content: prompt }], { responseMimeType: 'application/json' });
+        const responseText = await callAI([{ role: 'user', content: prompt }], 'gemini-2.5-pro', { responseMimeType: 'application/json' });
         if (responseText) return JSON.parse(cleanJson(responseText));
         return null;
     } catch(e) { 
@@ -372,7 +376,7 @@ export const analyzeProjectContext = async (stories: SavedStory[]): Promise<{ an
     const prompt = getProjectContextAnalysisPrompt(contextSample);
 
     try {
-        const analysisText = await callAI([{ role: 'user', content: prompt }]);
+        const analysisText = await callAI([{ role: 'user', content: prompt }], 'gemini-2.5-flash');
         return {
             analysis: analysisText,
             references: recentStories.map((story) => story.title)
