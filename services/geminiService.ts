@@ -17,13 +17,6 @@ import {
 
 export { AI_PROMPTS };
 
-const SAFETY_SETTINGS = [
-    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
-    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' }
-];
-
 let lastErrorTime = 0;
 export const handleApiError = (e: any) => {
     const msg = e?.message || String(e);
@@ -135,8 +128,7 @@ export const callAI = async (
         temperature: effectiveTemperature,
         maxOutputTokens: 8192,
         responseMimeType: options.responseMimeType,
-        systemInstruction: systemMsg,
-        safetySettings: SAFETY_SETTINGS
+        systemInstruction: systemMsg
     };
 
     try {
