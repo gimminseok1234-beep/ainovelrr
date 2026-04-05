@@ -1,137 +1,134 @@
+
 import React, { useState } from 'react';
-import { Project } from '../types.ts';
-import { X, Save, FolderPlus, Lightbulb } from 'lucide-react';
+import { Project, SavedStory } from '../types.ts';
+import { X, Plus, Save, FolderOpen } from 'lucide-react';
 
 interface SaveDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (title: string, projectId: string, category: 'manuscript' | 'synopsis') => void;
   projects: Project[];
-  onCreateProject: (name: string) => string; // Returns new project ID
-  category?: 'manuscript' | 'synopsis';
+  onCreateProject: (name: string) => string | void;
+  category: 'manuscript' | 'synopsis';
 }
 
-const SaveDialog: React.FC<SaveDialogProps> = ({ 
-  isOpen, 
-  onClose, 
-  onSave, 
-  projects, 
-  onCreateProject,
-  category = 'manuscript'
-}) => {
+const SaveDialog: React.FC<SaveDialogProps> = ({ isOpen, onClose, onSave, projects, onCreateProject, category }) => {
   const [title, setTitle] = useState('');
-  const [selectedProjectId, setSelectedProjectId] = useState(projects[0]?.id || '');
-  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [showNewProjectInput, setShowNewProjectInput] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
 
   if (!isOpen) return null;
 
   const handleSave = () => {
-    if (!title.trim()) return alert("제목을 입력해주세요.");
-    if (!selectedProjectId && !newProjectName) return alert("프로젝트를 선택하거나 생성해주세요.");
-
-    let targetProjectId = selectedProjectId;
-
-    if (isCreatingProject) {
-        if(!newProjectName.trim()) return alert("새 프로젝트 이름을 입력해주세요.");
-        targetProjectId = onCreateProject(newProjectName);
+    if (title.trim() && selectedProjectId) {
+      onSave(title, selectedProjectId, category);
+      onClose();
     }
-
-    onSave(title, targetProjectId, category);
-    setTitle('');
-    setNewProjectName('');
-    setIsCreatingProject(false);
-    onClose();
   };
 
-  const isSynopsis = category === 'synopsis';
+  const handleCreateNewProject = () => {
+    if (newProjectName.trim()) {
+      const newId = onCreateProject(newProjectName);
+      if (newId) setSelectedProjectId(newId);
+      setNewProjectName('');
+      setShowNewProjectInput(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-800 border border-gray-700 rounded-xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
-        <div className="flex justify-between items-center p-4 border-b border-gray-700">
-          <h3 className={`text-lg font-bold flex items-center gap-2 ${isSynopsis ? 'text-cyan-400' : 'text-white'}`}>
-            {isSynopsis ? <Lightbulb size={20} /> : <Save className="text-indigo-400" size={20} />}
-            {isSynopsis ? '시놉시스 저장하기' : '원고 저장하기'}
-          </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
-            <X size={20} />
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="flex items-center justify-between p-5 border-b border-gray-800">
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <Save size={20} className="text-indigo-400" /> 원고 저장하기
+          </h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
+            <X size={24} />
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-                {isSynopsis ? '시놉시스 제목' : '원고 제목'}
-            </label>
+        <div className="p-6 space-y-6">
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">원고 제목</label>
             <input
               type="text"
-              className={`w-full bg-gray-900 border rounded-lg p-3 text-gray-100 outline-none transition-colors ${isSynopsis ? 'border-gray-700 focus:border-cyan-500' : 'border-gray-700 focus:border-indigo-500'}`}
-              placeholder={isSynopsis ? "예: 아이디어 스케치" : "예: 1화 - 각성"}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              placeholder="예: 1화 - 시작되는 모험"
+              className="w-full bg-gray-950 border border-gray-800 rounded-xl p-4 text-white outline-none focus:border-indigo-500 transition-all"
               autoFocus
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">저장할 프로젝트</label>
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">프로젝트 선택</label>
+              <button 
+                onClick={() => setShowNewProjectInput(!showNewProjectInput)}
+                className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+              >
+                <Plus size={10} /> {showNewProjectInput ? '취소' : '새 프로젝트'}
+              </button>
+            </div>
             
-            {!isCreatingProject ? (
-              <div className="flex gap-2">
-                <select
-                  className={`flex-1 bg-gray-900 border rounded-lg p-3 text-gray-100 outline-none ${isSynopsis ? 'border-gray-700 focus:border-cyan-500' : 'border-gray-700 focus:border-indigo-500'}`}
-                  value={selectedProjectId}
-                  onChange={(e) => setSelectedProjectId(e.target.value)}
-                >
-                  <option value="" disabled>프로젝트 선택</option>
-                  {(Array.isArray(projects) ? projects : []).map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <button 
-                  onClick={() => setIsCreatingProject(true)}
-                  className="bg-gray-700 hover:bg-gray-600 p-3 rounded-lg text-gray-200 transition-colors"
-                  title="새 프로젝트 만들기"
-                >
-                  <FolderPlus size={20} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <input
+            {showNewProjectInput && (
+              <div className="flex gap-2 p-2 bg-gray-950 border border-gray-800 rounded-xl animate-in slide-in-from-top-1 duration-200">
+                <input 
                   type="text"
-                  className={`flex-1 bg-gray-900 border rounded-lg p-3 text-gray-100 outline-none ${isSynopsis ? 'border-cyan-500' : 'border-indigo-500'}`}
-                  placeholder="새 프로젝트 이름"
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="새 프로젝트 이름"
+                  className="flex-1 bg-transparent border-none outline-none text-sm text-white px-2"
+                  autoFocus
                 />
-                 <button 
-                  onClick={() => setIsCreatingProject(false)}
-                  className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm text-gray-200 transition-colors"
+                <button 
+                  onClick={handleCreateNewProject}
+                  disabled={!newProjectName.trim()}
+                  className="p-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition-all"
                 >
-                  취소
+                  <Plus size={16} />
                 </button>
               </div>
             )}
-            {!isCreatingProject && projects.length === 0 && (
-              <p className="text-xs text-yellow-500 mt-2">저장할 프로젝트를 먼저 생성해주세요.</p>
-            )}
+            
+            <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+              {projects.length === 0 ? (
+                <div className="text-center py-8 border border-dashed border-gray-800 rounded-xl">
+                  <p className="text-sm text-gray-600">저장할 프로젝트가 없습니다.</p>
+                </div>
+              ) : (
+                projects.map(project => (
+                  <button
+                    key={project.id}
+                    onClick={() => setSelectedProjectId(project.id)}
+                    className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
+                      selectedProjectId === project.id 
+                        ? 'bg-indigo-600/20 border-indigo-500 text-white' 
+                        : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
+                    }`}
+                  >
+                    <FolderOpen size={18} className={selectedProjectId === project.id ? 'text-indigo-400' : 'text-gray-600'} />
+                    <span className="text-sm font-medium truncate">{project.name}</span>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end gap-2 rounded-b-xl">
-          <button 
+        <div className="p-5 bg-gray-950 border-t border-gray-800 flex gap-3">
+          <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+            className="flex-1 py-3 text-gray-400 font-bold hover:text-white transition-colors"
           >
-            취소
+            취ce
           </button>
-          <button 
+          <button
             onClick={handleSave}
-            className={`px-6 py-2 text-white font-medium rounded-lg transition-colors shadow-lg flex items-center gap-2 ${isSynopsis ? 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-500/20' : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/20'}`}
+            disabled={!title.trim() || !selectedProjectId}
+            className="flex-[2] py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg transition-all"
           >
-            {isSynopsis ? <Lightbulb size={16} /> : <Save size={16} />}
             저장 완료
           </button>
         </div>

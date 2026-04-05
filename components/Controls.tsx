@@ -3,16 +3,11 @@ import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { Upload, AlertTriangle, Settings2, Book, Hash, X, Plus, Paperclip, CheckCircle2, FileText, BrainCircuit, Play, ChevronDown, ChevronUp, RefreshCcw, ArrowRight, AlignLeft, Wand2, Layout, PenTool, RotateCcw, ArrowRightCircle, Download, BookOpenCheck, MessageSquare, Info, Flame, Combine, Forward, Link2, Sparkles, Maximize2, Eraser, RefreshCw } from 'lucide-react';
 import { NovelSettings, POV, Project, SavedStory, AiPreset } from '../types.ts';
 import { analyzeProjectContext, generateNovelStep, continueStoryStream, analyzeRawStoryIdea, refineText } from '../services/geminiService.ts';
-import { AI_PROMPTS } from '../services/prompts.ts';
 import AiRefinePanel from './AiRefinePanel.tsx';
 
 interface ControlsProps {
   settings: NovelSettings;
   setSettings: React.Dispatch<React.SetStateAction<NovelSettings>>;
-  onGenerate: (structuralGuide?: string, contextAnalysis?: string) => void; 
-  onRetry: () => void;
-  onContinue: () => void;
-  onRefine: (instruction: string) => void;
   isLoading: boolean;
   projects: Project[];
   activeProjectId: string | null;
@@ -28,10 +23,6 @@ interface ControlsProps {
 const Controls: React.FC<ControlsProps> = ({ 
   settings, 
   setSettings, 
-  onGenerate, 
-  onRetry,
-  onContinue,
-  onRefine,
   isLoading,
   projects,
   activeProjectId,

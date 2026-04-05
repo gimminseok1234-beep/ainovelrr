@@ -11,7 +11,7 @@ import DeleteConfirmDialog from './components/DeleteConfirmDialog.tsx';
 import HomeScreen from './components/HomeScreen.tsx';
 import UserMenu from './components/UserMenu.tsx';
 import TrashBin from './components/TrashBin.tsx';
-import { generateNovelStep, analyzeManuscript, continueStoryStream, refineText } from './services/geminiService.ts';
+import { analyzeManuscript } from './services/geminiService.ts';
 import { DEFAULT_AI_PRESETS } from './services/prompts.ts';
 import { 
   subscribeToAuthChanges, 
@@ -114,7 +114,6 @@ function App() {
   const [generatedContent, setGeneratedContent] = useState<string>("");
   const [editingTitle, setEditingTitle] = useState<string>(""); 
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   
   // Editor Preferences
   const [editorPrefs, setEditorPrefs] = useState<EditorPreferences>(() => {
@@ -224,8 +223,7 @@ function App() {
   };
 
   // Retries
-  // const [lastStructuralGuide, setLastStructuralGuide] = useState<string | undefined>(undefined); // REMOVED
-  const [lastContextAnalysis, setLastContextAnalysis] = useState<string | undefined>(undefined);
+  // Removed unused retry states
 
   // Desktop UI State
   const [activeTab, setActiveTab] = useState<'write' | 'library'>('library');
@@ -452,37 +450,6 @@ function App() {
 
   // --- Handlers ---
 
-  const handleGenerate = useCallback(async (structuralGuide?: string, contextAnalysis?: string) => {
-    if (!settings.synopsis) return;
-    setIsLoading(true);
-    setError(null);
-    setGeneratedContent(""); 
-    setEditingStoryId(null); 
-    setEditingTitle("새 원고 (작성 중)"); 
-    lastSavedSnapshot.current = { title: "새 원고 (작성 중)", content: "" };
-    // setLastStructuralGuide(structuralGuide); // REMOVED
-    setLastContextAnalysis(contextAnalysis);
-    setIsMobileMenuOpen(false);
-    const projectContext = activeProjectId ? projects.find(p => p.id === activeProjectId) || null : null;
-    try {
-      
-      // FIX: Use generateNovelStep with correct arguments (single shot generation: 1/1)
-      await generateNovelStep(
-          1, 1, settings, projectContext, "", 
-          undefined, // structuralGuide removed
-          contextAnalysis, 
-          (chunk) => {
-            setGeneratedContent((prev) => prev + chunk);
-          },
-          undefined // storyAnalysis
-      );
-    } catch (err) {
-      setError("오류 발생");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [settings, activeProjectId, projects]);
-
   const handleFinishGeneration = (content?: string) => {
       if (content) setGeneratedContent(content);
       setCurrentView('WRITER');
@@ -494,30 +461,6 @@ function App() {
       setIsSaveModalOpen(true);
       // We don't change view here, so the user stays in AI_WRITER
   };
-
-  const handleRetry = useCallback(async () => {
-      if (confirm("다시 작성하시겠습니까?")) handleGenerate(undefined, lastContextAnalysis);
-  }, [handleGenerate, lastContextAnalysis]);
-
-  const handleContinueGenerate = useCallback(async () => {
-    if (!generatedContent) return;
-    setIsLoading(true);
-    try {
-      const level = settings.creativityLevel || 7;
-      const temp = level / 10;
-      
-      await continueStoryStream(generatedContent, (chunk) => setGeneratedContent((prev) => prev + chunk), temp);
-    } catch (err) { setError("오류 발생"); } finally { setIsLoading(false); }
-  }, [generatedContent, settings.creativityLevel]);
-
-  const handleRefineGenContent = useCallback(async (instruction: string) => {
-    if (!generatedContent) return;
-    setIsLoading(true);
-    try {
-      const refined = await refineText(generatedContent, instruction, settings.creativityLevel || 7);
-      setGeneratedContent(refined);
-    } catch (e) { setError("오류 발생"); } finally { setIsLoading(false); }
-  }, [generatedContent]);
 
   const createProject = (name: string) => {
     const newProject: Project = { 
@@ -934,7 +877,6 @@ function App() {
                           content={generatedContent}
                           setContent={setGeneratedContent}
                           isLoading={false}
-                          error={null}
                           onSaveAs={() => setIsSaveModalOpen(true)}
                           onUpdate={() => {
                               if (editingStoryId) {
@@ -1039,10 +981,6 @@ function App() {
                         <Controls 
                             settings={settings} 
                             setSettings={setSettings} 
-                            onGenerate={handleGenerate} 
-                            onRetry={handleRetry} 
-                            onContinue={handleContinueGenerate} 
-                            onRefine={handleRefineGenContent} 
                             isLoading={isLoading} 
                             projects={activeProjects} 
                             activeProjectId={activeProjectId} 
@@ -1097,7 +1035,7 @@ function App() {
                   </aside>
                   <main className="flex-1 h-full relative min-w-0 w-full bg-[#121212]">
                     <NovelViewer 
-                      title={editingTitle} setTitle={setEditingTitle} content={generatedContent} setContent={setGeneratedContent} isLoading={isLoading} error={error} onSaveAs={() => setIsSaveModalOpen(true)} 
+                      title={editingTitle} setTitle={setEditingTitle} content={generatedContent} setContent={setGeneratedContent} isLoading={isLoading} onSaveAs={() => setIsSaveModalOpen(true)} 
                       onUpdate={() => { 
                         if (editingStoryId) {
                             const story = savedStories.find(s => s.id === editingStoryId);
@@ -1131,7 +1069,7 @@ function App() {
                             }
                         }
                       }} 
-                      onContinue={handleContinueGenerate} onRetry={handleRetry} onReset={handleResetViewer} isExistingStory={!!editingStoryId} goHome={() => checkUnsavedChanges(() => { setActiveProjectId(null); setCurrentView('HOME'); })} lastSavedTime={lastSavedTime} editorPrefs={editorPrefs} isMobile={false}
+                      onReset={handleResetViewer} isExistingStory={!!editingStoryId} goHome={() => checkUnsavedChanges(() => { setActiveProjectId(null); setCurrentView('HOME'); })} lastSavedTime={lastSavedTime} editorPrefs={editorPrefs} isMobile={false}
                       presets={globalSettings?.aiPresets && globalSettings.aiPresets.length > 0 ? globalSettings.aiPresets : DEFAULT_AI_PRESETS}
                     />
                   </main>

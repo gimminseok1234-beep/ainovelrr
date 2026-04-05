@@ -1,5 +1,4 @@
 
-
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged, User as FirebaseUser, Auth } from 'firebase/auth';
 import { 
@@ -20,7 +19,6 @@ import { getAnalytics } from "firebase/analytics";
 import { Project, SavedStory, NovelSettings } from '../types.ts';
 
 const firebaseConfig = {
-  // FIXED: Do not use process.env.API_KEY here. It is for Gemini. Use the dedicated Firebase key.
   apiKey: "AIzaSyA6LdNrWRS_-75LYtJDx8Br-TEYaujGVcM", 
   authDomain: "ainovel-ec773.firebaseapp.com",
   projectId: "ainovel-ec773",
@@ -37,13 +35,8 @@ let db: Firestore | undefined;
 try {
     app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
     auth = getAuth(app);
-    
-    // ⭐ PERFORMANCE FIX: Enable Offline Persistence
-    // This allows the app to load data instantly from local storage while syncing in background.
     db = initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: undefined 
-      })
+      localCache: persistentLocalCache({ tabManager: undefined })
     });
 
     if (typeof window !== 'undefined') {
@@ -53,26 +46,77 @@ try {
     console.error("Firebase initialization error", error);
 }
 
+// --- Error Handling Spec for Firestore Operations ---
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null) => {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+      providerInfo: auth?.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  };
+  
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  
+  // Check for resource-exhausted error (Quota exceeded)
+  if (errInfo.error.includes('resource-exhausted') || errInfo.error.includes('Quota exceeded')) {
+    if (quotaExceededCallback) quotaExceededCallback();
+  }
+  
+  throw new Error(JSON.stringify(errInfo));
+};
+
+// --- Quota / Error Handling ---
+let quotaExceededCallback: (() => void) | null = null;
+export const setQuotaExceededCallback = (cb: () => void) => {
+  quotaExceededCallback = cb;
+};
+
 // Helper to remove undefined values which Firestore rejects
 const sanitizeData = <T>(data: T): T => {
   return JSON.parse(JSON.stringify(data));
 };
 
-// --- Quota / Error Handling ---
-let quotaExceededCallback: (() => void) | null = null;
-
-export const setQuotaExceededCallback = (cb: () => void) => {
-  quotaExceededCallback = cb;
-};
-
-const handleFirestoreError = (e: any) => {
-  console.error("Firestore Operation Error:", e);
-  // Check for resource-exhausted error (Quota exceeded)
-  if (e && (e.code === 'resource-exhausted' || e.message?.includes('Quota exceeded'))) {
-    if (quotaExceededCallback) quotaExceededCallback();
-  }
-};
-
+// --- Auth Functions ---
 export const signInWithGoogle = async () => {
   if (!auth) return;
   const provider = new GoogleAuthProvider();
@@ -102,89 +146,84 @@ export const subscribeToAuthChanges = (callback: (user: FirebaseUser | null) => 
   return onAuthStateChanged(auth, callback);
 };
 
+// --- Firestore Functions ---
 export const saveProjectToFirestore = async (userId: string, project: Project) => {
   if (!db) return;
+  const path = `users/${userId}/projects/${project.id}`;
   try {
     await setDoc(doc(db, 'users', userId, 'projects', project.id), sanitizeData(project));
   } catch (e) {
-    handleFirestoreError(e);
-    throw e; // Re-throw to let UI handle it
+    handleFirestoreError(e, OperationType.WRITE, path);
   }
 };
 
-// SOFT DELETE
 export const deleteProjectFromFirestore = async (userId: string, projectId: string) => {
   if (!db) return;
+  const path = `users/${userId}/projects/${projectId}`;
   try {
     await updateDoc(doc(db, 'users', userId, 'projects', projectId), { deletedAt: Date.now() });
   } catch (e) {
-    handleFirestoreError(e);
-    throw e;
+    handleFirestoreError(e, OperationType.UPDATE, path);
   }
 };
 
-// RESTORE
 export const restoreProjectToFirestore = async (userId: string, projectId: string) => {
   if (!db) return;
+  const path = `users/${userId}/projects/${projectId}`;
   try {
     await updateDoc(doc(db, 'users', userId, 'projects', projectId), { deletedAt: null });
   } catch (e) {
-    handleFirestoreError(e);
-    throw e;
+    handleFirestoreError(e, OperationType.UPDATE, path);
   }
 };
 
-// HARD DELETE
 export const permanentDeleteProjectFromFirestore = async (userId: string, projectId: string) => {
   if (!db) return;
+  const path = `users/${userId}/projects/${projectId}`;
   try {
     await deleteDoc(doc(db, 'users', userId, 'projects', projectId));
   } catch (e) {
-    handleFirestoreError(e);
-    throw e;
+    handleFirestoreError(e, OperationType.DELETE, path);
   }
 };
 
 export const saveStoryToFirestore = async (userId: string, story: SavedStory) => {
   if (!db) return;
+  const path = `users/${userId}/stories/${story.id}`;
   try {
     await setDoc(doc(db, 'users', userId, 'stories', story.id), sanitizeData(story));
   } catch (e) {
-    handleFirestoreError(e);
-    throw e; // Re-throw to let UI handle it
+    handleFirestoreError(e, OperationType.WRITE, path);
   }
 };
 
-// SOFT DELETE
 export const deleteStoryFromFirestore = async (userId: string, storyId: string) => {
   if (!db) return;
+  const path = `users/${userId}/stories/${storyId}`;
   try {
     await updateDoc(doc(db, 'users', userId, 'stories', storyId), { deletedAt: Date.now() });
   } catch (e) {
-    handleFirestoreError(e);
-    throw e;
+    handleFirestoreError(e, OperationType.UPDATE, path);
   }
 };
 
-// RESTORE
 export const restoreStoryToFirestore = async (userId: string, storyId: string) => {
   if (!db) return;
+  const path = `users/${userId}/stories/${storyId}`;
   try {
     await updateDoc(doc(db, 'users', userId, 'stories', storyId), { deletedAt: null });
   } catch (e) {
-    handleFirestoreError(e);
-    throw e;
+    handleFirestoreError(e, OperationType.UPDATE, path);
   }
 };
 
-// HARD DELETE
 export const permanentDeleteStoryFromFirestore = async (userId: string, storyId: string) => {
   if (!db) return;
+  const path = `users/${userId}/stories/${storyId}`;
   try {
     await deleteDoc(doc(db, 'users', userId, 'stories', storyId));
   } catch (e) {
-    handleFirestoreError(e);
-    throw e;
+    handleFirestoreError(e, OperationType.DELETE, path);
   }
 };
 
@@ -195,20 +234,17 @@ export const subscribeToUserData = (
 ) => {
   if (!db) return () => {};
 
-  // With persistentLocalCache, this listener fires immediately with cached data.
-  // We fetch ALL projects/stories including deleted ones, and filter in the App logic.
-  // This allows the TrashBin to work properly.
   const qProjects = query(collection(db, 'users', userId, 'projects'), orderBy('createdAt', 'desc'));
-  const unsubProjects = onSnapshot(qProjects, { includeMetadataChanges: true }, (snapshot) => {
+  const unsubProjects = onSnapshot(qProjects, (snapshot) => {
     const projects = snapshot.docs.map(doc => doc.data() as Project);
     onProjectsUpdate(projects);
-  });
+  }, (e) => handleFirestoreError(e, OperationType.GET, `users/${userId}/projects`));
 
   const qStories = query(collection(db, 'users', userId, 'stories'), orderBy('createdAt', 'desc'));
-  const unsubStories = onSnapshot(qStories, { includeMetadataChanges: true }, (snapshot) => {
+  const unsubStories = onSnapshot(qStories, (snapshot) => {
     const stories = snapshot.docs.map(doc => doc.data() as SavedStory);
     onStoriesUpdate(stories);
-  });
+  }, (e) => handleFirestoreError(e, OperationType.GET, `users/${userId}/stories`));
 
   return () => {
     unsubProjects();
@@ -216,18 +252,13 @@ export const subscribeToUserData = (
   };
 };
 
-// --- Global Settings Persistence ---
-
 export const saveUserGlobalSettings = async (userId: string, settings: NovelSettings) => {
   if (!db) return;
+  const path = `users/${userId}/settings/global`;
   try {
     await setDoc(doc(db, 'users', userId, 'settings', 'global'), sanitizeData(settings));
   } catch (e) {
-    handleFirestoreError(e);
-    // Global settings failure is less critical, but we should still log/throw if needed
-    // For now, let's allow it to fail silently or log, as it doesn't block main user flow like Story Save does.
-    // But to be consistent:
-    console.error("Global settings save failed", e);
+    handleFirestoreError(e, OperationType.WRITE, path);
   }
 };
 
@@ -240,7 +271,7 @@ export const subscribeToGlobalSettings = (
     if (doc.exists()) {
       onUpdate(doc.data() as NovelSettings);
     }
-  });
+  }, (e) => handleFirestoreError(e, OperationType.GET, `users/${userId}/settings/global`));
 };
 
 export type { FirebaseUser as User };

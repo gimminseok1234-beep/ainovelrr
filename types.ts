@@ -15,6 +15,12 @@ export enum POV {
   ThirdPersonOmniscient = "3인칭 전지적 작가 시점 (God view)",
 }
 
+export enum AiModel {
+  Gemini31Pro = "gemini-3.1-pro-preview",
+  Gemini3Flash = "gemini-3-flash-preview",
+  Gemini31FlashLite = "gemini-3.1-flash-lite-preview",
+}
+
 export type ViewMode = 'HOME' | 'WRITER' | 'AI_WRITER';
 
 export interface EditorPreferences {
@@ -49,6 +55,7 @@ export interface NovelSettings {
   activeStyleId?: string;
   hashtags?: string[];
   creativityLevel?: number; // 1-10
+  model?: AiModel;
   
   // AI Presets
   aiPresets?: AiPreset[];
@@ -155,5 +162,6 @@ export const DEFAULT_SETTINGS: NovelSettings = {
   guidelines: "",
   hashtags: [],
   creativityLevel: 7,
+  model: AiModel.Gemini31Pro,
   aiPresets: [] // Will be populated with defaults on init
 };

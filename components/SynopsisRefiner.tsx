@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Project, SavedStory, RefinedSynopsisCard, NovelSettings } from '../types.ts';
-import { X, Wand2, FileText, RefreshCw, Save, ArrowRight, Edit2, Check, Sparkles, Info, BookOpenCheck, AlertTriangle, CheckCircle2, RefreshCcw, FolderPlus, Upload, ToggleLeft, ToggleRight, AlignJustify, Copy } from 'lucide-react';
-import { refineSynopsisWithContext, refineSynopsisStream, refineText, analyzeProjectContext, analyzeSynopsisReference } from '../services/geminiService.ts';
+import React from 'react';
+import { Project, SavedStory, RefinedSynopsisCard, NovelSettings, AiModel } from '../types.ts';
+import { X, Wand2, FileText, RefreshCw, Save, Edit2, Check, Sparkles, BookOpenCheck, AlertTriangle, CheckCircle2, RefreshCcw, Copy, Settings2 } from 'lucide-react';
 import InputDialog from './InputDialog.tsx';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
+import { useSynopsisRefiner } from '../hooks/useSynopsisRefiner.ts';
 
 interface SynopsisRefinerProps {
   isOpen: boolean;
@@ -15,266 +15,76 @@ interface SynopsisRefinerProps {
   activeProjectId: string | null;
   onSaveCard: (title: string, content: string, instructions: string, projectId: string) => void;
   onUpdateProject: (project: Project) => void;
-  onCreateProject: (name: string) => string | void; // New prop
-  settings?: NovelSettings; // NEW PROP to access global settings
+  onCreateProject: (name: string) => string | void;
+  settings?: NovelSettings;
 }
 
-const SynopsisRefiner: React.FC<SynopsisRefinerProps> = ({
-  isOpen,
-  onClose,
-  projects,
-  stories,
-  activeProjectId,
-  onSaveCard,
-  onUpdateProject,
-  onCreateProject,
-  settings
-}) => {
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(activeProjectId || '');
-  const [rawSynopsis, setRawSynopsis] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isContextAnalyzing, setIsContextAnalyzing] = useState(false);
-  const [refinedCards, setRefinedCards] = useState<RefinedSynopsisCard[]>([]);
-  const [streamingResult, setStreamingResult] = useState('');
-  
-  // Card Edit State
-  const [editingCardIndex, setEditingCardIndex] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<RefinedSynopsisCard | null>(null);
-  
-  // AI Refine State for individual card
-  const [isCardRefining, setIsCardRefining] = useState<number | null>(null);
+const SynopsisRefiner: React.FC<SynopsisRefinerProps> = (props) => {
+  const {
+    isOpen,
+    onClose,
+    projects,
+    activeProjectId,
+    onSaveCard,
+    onCreateProject,
+  } = props;
 
-  // Context Stale State
-  const [isContextStale, setIsContextStale] = useState(false);
-
-  // Project Creation Dialog
-  const [createProjectDialog, setCreateProjectDialog] = useState(false);
-
-  // --- Reference Style State ---
-  const [referenceAnalysis, setReferenceAnalysis] = useState('');
-  const [isAnalyzingReference, setIsAnalyzingReference] = useState(false);
-  const referenceFileRef = useRef<HTMLInputElement>(null);
-
-  const activeProject = projects.find(p => p.id === selectedProjectId);
-
-  useEffect(() => {
-    if (activeProjectId) setSelectedProjectId(activeProjectId);
-  }, [activeProjectId]);
-
-  // Check for stale context whenever project or stories change
-  useEffect(() => {
-    if (!activeProject) {
-        setIsContextStale(false);
-        return;
-    }
-
-    const projectStories = stories.filter(s => s.projectId === activeProject.id && s.category !== 'synopsis');
-    
-    if (!activeProject.contextSnapshot) {
-        // If we have stories but no analysis, suggest analysis
-        if (projectStories.length > 0) {
-             setIsContextStale(false); 
-        }
-        return;
-    }
-
-    const snapshot = activeProject.contextSnapshot;
-    const currentStoryCount = projectStories.length;
-    const currentLastUpdate = projectStories.length > 0 
-        ? Math.max(...projectStories.map(s => s.updatedAt || s.createdAt)) 
-        : 0;
-    const currentProjUpdate = (activeProject.worldview?.length || 0) + (activeProject.characters?.length || 0);
-
-    const isStale = 
-        currentStoryCount !== snapshot.totalStories ||
-        currentLastUpdate > snapshot.lastStoryUpdate ||
-        Math.abs(currentProjUpdate - snapshot.projectUpdate) > 50; 
-
-    setIsContextStale(isStale);
-
-  }, [activeProject, stories]);
+  const {
+    selectedProjectId,
+    setSelectedProjectId,
+    rawSynopsis,
+    setRawSynopsis,
+    isAnalyzing,
+    isContextAnalyzing,
+    refinedCards,
+    streamingResult,
+    editingCardIndex,
+    editForm,
+    setEditForm,
+    isCardRefining,
+    isContextStale,
+    createProjectDialog,
+    setCreateProjectDialog,
+    activeProject,
+    selectedModel,
+    setSelectedModel,
+    handleAnalyzeContext,
+    handleAnalyzeSynopsis,
+    handleRefineCard,
+    handleSaveToLibrary,
+    handleSaveStreamingResult,
+    handleCreateAndSaveAll,
+    startEditing,
+    saveEditing,
+  } = useSynopsisRefiner(props);
 
   if (!isOpen) return null;
 
-  const handleReferenceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      setIsAnalyzingReference(true);
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-          const text = event.target?.result as string;
-          try {
-              const analysis = await analyzeSynopsisReference(text);
-              setReferenceAnalysis(analysis);
-          } catch(e) {
-              alert("참조 파일 분석 실패");
-          } finally {
-              setIsAnalyzingReference(false);
-              if(referenceFileRef.current) referenceFileRef.current.value = '';
-          }
-      };
-      reader.readAsText(file);
-  };
-
-  const handleAnalyzeContext = async () => {
-      if (!activeProject) return alert("프로젝트를 선택해주세요.");
-      const projectStories = stories.filter(s => s.projectId === activeProject.id && s.category !== 'synopsis');
-      if (projectStories.length === 0) return alert("분석할 원고가 없습니다.");
-
-      setIsContextAnalyzing(true);
-      try {
-          const result = await analyzeProjectContext(projectStories);
-          if (result) {
-              const lastUpdate = projectStories.length > 0 
-                ? Math.max(...projectStories.map(s => s.updatedAt || s.createdAt)) 
-                : 0;
-              
-              const snapshot = {
-                  totalStories: projectStories.length,
-                  lastStoryUpdate: lastUpdate,
-                  projectUpdate: (activeProject.worldview?.length || 0) + (activeProject.characters?.length || 0)
-              };
-
-              // Save to Project (Shared)
-              onUpdateProject({
-                  ...activeProject,
-                  contextAnalysis: result.analysis,
-                  contextReferences: result.references,
-                  contextSnapshot: snapshot
-              });
-              setIsContextStale(false);
-          } else {
-              alert("분석 실패");
-          }
-      } catch (e) {
-          alert("오류 발생");
-      } finally {
-          setIsContextAnalyzing(false);
-      }
-  };
-
-  const handleAnalyzeSynopsis = async () => {
-    if (!rawSynopsis.trim()) return alert("시놉시스 내용을 입력해주세요.");
-    
-    setIsAnalyzing(true);
-    setStreamingResult('');
-    setRefinedCards([]); // Clear old cards
-    
-    try {
-      const recentStories = selectedProjectId 
-        ? stories.filter(s => s.projectId === selectedProjectId && s.category !== 'synopsis')
-        : [];
-      
-      const preAnalyzedContext = activeProject?.contextAnalysis;
-
-      await refineSynopsisStream(
-          rawSynopsis, 
-          activeProject || null, 
-          recentStories,
-          (chunk) => setStreamingResult(prev => prev + chunk),
-          preAnalyzedContext,
-          "", 
-          1, 
-          settings?.creativityLevel || 7
-      );
-    } catch (e) {
-      console.error(e);
-      alert("분석 중 오류가 발생했습니다.");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const handleRefineCard = async (index: number, card: RefinedSynopsisCard) => {
-    setIsCardRefining(index);
-    try {
-      // Just refine the summary as there are no instructions anymore
-      const refinedSummary = await refineText(
-          card.summary, 
-          "Make this summary more detailed, include sensory details, and merge any technical instructions into the narrative.",
-          settings?.creativityLevel || 7
-      );
-      
-      const newCards = [...refinedCards];
-      newCards[index] = { ...card, summary: refinedSummary };
-      setRefinedCards(newCards);
-    } catch (e) {
-      alert("카드 수정 중 오류가 발생했습니다.");
-    } finally {
-      setIsCardRefining(null);
-    }
-  };
-
-  const handleSaveToLibrary = (card: RefinedSynopsisCard, projectId: string) => {
-    // Instructions are now merged into summary or empty, so just pass them through
-    const content = `[Synopsis]\n${card.summary}`;
-    onSaveCard(`${card.chapter}화. ${card.title} (Blueprint)`, content, "", projectId);
-  };
-
-  const handleSaveStreamingResult = (projectId: string) => {
-    if (!streamingResult) return;
-    const title = activeProject ? `${activeProject.name} 정제된 설계도` : "정제된 원고 설계도";
-    onSaveCard(title, streamingResult, "", projectId);
-  };
-
   const handleSaveAllClick = () => {
-      if (!selectedProjectId) {
-          setCreateProjectDialog(true);
-          return;
+    if (!selectedProjectId) {
+      setCreateProjectDialog(true);
+      return;
+    }
+    
+    if (streamingResult) {
+      if (confirm(`현재 선택된 '${activeProject?.name}' 프로젝트에 정제된 설계도를 저장하시겠습니까?`)) {
+        handleSaveStreamingResult(selectedProjectId);
+        alert("저장되었습니다.");
       }
-      
-      if (streamingResult) {
-          if (confirm(`현재 선택된 '${activeProject?.name}' 프로젝트에 정제된 설계도를 저장하시겠습니까?`)) {
-              handleSaveStreamingResult(selectedProjectId);
-              alert("저장되었습니다.");
-          }
-          return;
-      }
+      return;
+    }
 
-      if (refinedCards.length > 0) {
-          if (confirm(`현재 선택된 '${activeProject?.name}' 프로젝트에 ${refinedCards.length}개의 시놉시스를 저장하시겠습니까?`)) {
-              refinedCards.forEach(card => handleSaveToLibrary(card, selectedProjectId));
-              alert("모두 저장되었습니다.");
-          }
+    if (refinedCards.length > 0) {
+      if (confirm(`현재 선택된 '${activeProject?.name}' 프로젝트에 ${refinedCards.length}개의 시놉시스를 저장하시겠습니까?`)) {
+        refinedCards.forEach(card => handleSaveToLibrary(card, selectedProjectId));
+        alert("모두 저장되었습니다.");
       }
-  };
-
-  const handleCreateAndSaveAll = (projectName: string) => {
-      const newId = onCreateProject(projectName);
-      if (newId && typeof newId === 'string') {
-          if (streamingResult) {
-              handleSaveStreamingResult(newId);
-              alert(`새 프로젝트 '${projectName}'에 정제된 설계도가 저장되었습니다.`);
-          } else {
-              refinedCards.forEach(card => handleSaveToLibrary(card, newId));
-              alert(`새 프로젝트 '${projectName}'에 ${refinedCards.length}개의 시놉시스가 저장되었습니다.`);
-          }
-          setSelectedProjectId(newId);
-      }
-      setCreateProjectDialog(false);
-  };
-
-  const startEditing = (index: number, card: RefinedSynopsisCard) => {
-      setEditingCardIndex(index);
-      setEditForm(card);
-  };
-
-  const saveEditing = () => {
-      if (editingCardIndex !== null && editForm) {
-          const newCards = [...refinedCards];
-          newCards[editingCardIndex] = editForm;
-          setRefinedCards(newCards);
-          setEditingCardIndex(null);
-          setEditForm(null);
-      }
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="bg-[#1e1e1e] border border-gray-700 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-        
-        {/* Header */}
         <div className="p-5 border-b border-gray-800 bg-[#252525] flex justify-between items-center shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-900/30 rounded-lg text-purple-400">
@@ -291,7 +101,6 @@ const SynopsisRefiner: React.FC<SynopsisRefinerProps> = ({
         </div>
 
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-          {/* LEFT: Input Area */}
           <div className="w-full md:w-[400px] flex flex-col border-r border-gray-800 bg-[#151515] p-6 overflow-y-auto custom-scrollbar shrink-0">
              <div className="space-y-6">
                 <div>
@@ -307,7 +116,6 @@ const SynopsisRefiner: React.FC<SynopsisRefinerProps> = ({
                       ))}
                    </select>
                    
-                   {/* Context Analysis Section */}
                    {selectedProjectId && (
                        <div className="mt-3 bg-gray-800 rounded-lg p-3 border border-gray-700">
                            <div className="flex justify-between items-center mb-2">
@@ -339,7 +147,18 @@ const SynopsisRefiner: React.FC<SynopsisRefinerProps> = ({
                    )}
                 </div>
 
-
+                <div>
+                   <label className="block text-sm font-bold text-gray-300 mb-2">AI 모델 설정</label>
+                   <select 
+                      className="w-full bg-[#252525] border border-gray-700 rounded-lg p-3 text-sm text-gray-200 outline-none focus:border-purple-500 transition-colors"
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value as AiModel)}
+                   >
+                      <option value={AiModel.Gemini31Pro}>Gemini 3.1 Pro (고성능)</option>
+                      <option value={AiModel.Gemini3Flash}>Gemini 3 Flash (빠름)</option>
+                      <option value={AiModel.Gemini31FlashLite}>Gemini 3.1 Flash Lite (경량)</option>
+                   </select>
+                </div>
 
                 <div className="flex-1 flex flex-col">
                    <label className="block text-sm font-bold text-gray-300 mb-2 flex justify-between">
@@ -349,8 +168,8 @@ const SynopsisRefiner: React.FC<SynopsisRefinerProps> = ({
                    <textarea 
                       className="w-full min-h-[200px] flex-1 bg-[#252525] border border-gray-700 rounded-xl p-4 text-gray-200 outline-none resize-none focus:border-purple-500 transition-colors leading-relaxed text-sm placeholder-gray-600 custom-scrollbar"
                       placeholder={`예시:
-1화: 주인공이 던전에서 깨어난다. (당황하는 심리 묘사). 앞에 몬스터가 나타나는데 "저리 꺼져!"라고 소리치며 검을 휘두른다.
-2화: 마을로 돌아온 주인공. (사람들의 냉담한 반응). 여관 주인이 그를 알아보지 못한다.`}
+ 1화: 주인공이 던전에서 깨어난다. (당황하는 심리 묘사). 앞에 몬스터가 나타나는데 "저리 꺼져!"라고 소리치며 검을 휘두른다.
+ 2화: 마을로 돌아온 주인공. (사람들의 냉담한 반응). 여관 주인이 그를 알아보지 못한다.`}
                       value={rawSynopsis}
                       onChange={(e) => setRawSynopsis(e.target.value)}
                    />
@@ -367,7 +186,6 @@ const SynopsisRefiner: React.FC<SynopsisRefinerProps> = ({
              </div>
           </div>
 
-          {/* RIGHT: Output Area */}
           <div className="flex-1 bg-[#121212] p-6 overflow-y-auto custom-scrollbar relative">
              {!streamingResult && refinedCards.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-gray-600 opacity-50">
@@ -419,7 +237,6 @@ const SynopsisRefiner: React.FC<SynopsisRefinerProps> = ({
                    ) : (
                        (Array.isArray(refinedCards) ? refinedCards : []).map((card, idx) => (
                           <div key={idx} className="bg-[#1e1e1e] border border-gray-700 rounded-xl overflow-hidden shadow-lg hover:border-purple-500/50 transition-colors group">
-                             {/* Card Header */}
                              <div className="p-4 bg-[#252525] border-b border-gray-700 flex justify-between items-center">
                                 {editingCardIndex === idx && editForm ? (
                                     <div className="flex-1 flex gap-2 mr-4">
@@ -451,7 +268,6 @@ const SynopsisRefiner: React.FC<SynopsisRefinerProps> = ({
                                 </div>
                              </div>
 
-                             {/* Card Body */}
                              <div className="p-5 space-y-4">
                                 <div>
                                    <label className="text-xs font-bold text-gray-500 mb-1 block">줄거리 (Summary)</label>
@@ -465,11 +281,8 @@ const SynopsisRefiner: React.FC<SynopsisRefinerProps> = ({
                                        <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{card.summary}</p>
                                    )}
                                 </div>
-                                
-                                {/* REMOVED INSTRUCTIONS SECTION */}
                              </div>
 
-                             {/* Card Footer */}
                              <div className="p-3 bg-[#252525] border-t border-gray-700 flex justify-end gap-2">
                                 <button 
                                     onClick={() => handleRefineCard(idx, card)}

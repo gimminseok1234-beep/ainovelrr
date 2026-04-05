@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Copy, Download, RefreshCw, Save, Sparkles, Wand2, AlertTriangle, FileText, Home, PanelRightClose, Play, RotateCcw, Check, AlignLeft, Eraser, ArrowLeft, Edit3, Link2, Maximize2, Flame, Undo2, Redo2 } from 'lucide-react';
 import { refineText } from '../services/geminiService.ts';
-import { AI_PROMPTS, DEFAULT_AI_PRESETS } from '../services/prompts.ts';
+import { DEFAULT_AI_PRESETS } from '../services/prompts.ts';
 import { EditorPreferences, NovelSettings, AiPreset } from '../types.ts';
 import AiRefinePanel from './AiRefinePanel.tsx';
 
@@ -12,11 +12,8 @@ interface NovelViewerProps {
   content: string;
   setContent: (text: string) => void;
   isLoading: boolean;
-  error: string | null;
   onSaveAs: () => void;
   onUpdate: () => void;
-  onContinue?: () => void; 
-  onRetry?: () => void;
   onReset?: () => void; // New Reset Prop
   isExistingStory: boolean;
   goHome: () => void;
@@ -33,11 +30,8 @@ const NovelViewer: React.FC<NovelViewerProps> = ({
   content, 
   setContent, 
   isLoading, 
-  error, 
   onSaveAs,
   onUpdate,
-  onContinue,
-  onRetry,
   onReset,
   isExistingStory,
   goHome,
@@ -167,17 +161,6 @@ const NovelViewer: React.FC<NovelViewerProps> = ({
   const paperClass = (isSeparated && !isMobile)
       ? 'bg-[#1e1e1e] text-gray-100 shadow-2xl border border-gray-800' 
       : 'bg-transparent border-none shadow-none text-gray-200';
-
-  if (error) {
-    return (
-      <div className={`flex flex-col items-center justify-center h-full p-8 text-center ${bgClass}`}>
-        <AlertTriangle size={48} className="text-red-500 mb-4" />
-        <h3 className="text-xl font-bold mb-2 text-gray-200">오류</h3>
-        <p className="mb-6 max-w-md text-gray-400">{error}</p>
-        <button onClick={goHome} className="px-6 py-3 bg-red-600 text-white rounded-lg">돌아가기</button>
-      </div>
-    );
-  }
 
   return (
     <div className={`flex h-full relative overflow-hidden transition-colors duration-300 ${bgClass}`}>
